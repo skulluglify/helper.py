@@ -1,10 +1,10 @@
 #! /usr/bin/env python
 
-import os#, time
+import os, ctypes#, time
 from typing import Any
 import mysql.connector
 from mysql.connector import (connection)
-from multiprocessing import Process, Queue, Lock, Manager
+from multiprocessing import Process, Value, Queue, Lock, Manager
 from serverApi import ServerApi
 
 from tools import parseIntAuto
@@ -14,11 +14,20 @@ password: str = os.getenv("MYSQL_PASSWORD")
 host: str = os.getenv("MYSQL_HOST")
 database: str = os.getenv("MYSQL_DATABASE")
 
+serverApiConfig: dict = {}
+
+serverApiConfig.update({
+
+    "host": os.getenv("API_HOST") or "127.0.0.1",
+    "port": os.getenv("API_PORT") or "5000"
+})
+
+## ifconfig | grep -i inet  | grep -i 192 | awk '{print $2}'
 
 """
 ?SERVER API RUN WITH MULTIPROCESSING AND COMMUNICATE DATABASE LOCAL SERVER
 """
-def serverApiMp(data: Any, queue: Queue, lock: Lock):
+def serverApiMp(host: Value, port: Value, data: Any, queue: Queue, lock: Lock):
 
     api: ServerApi = ServerApi() ## bypass
     route: Any = api.routeJSON(methods=["GET", "POST"])
@@ -87,6 +96,25 @@ def serverApiMp(data: Any, queue: Queue, lock: Lock):
                 with lock:
 
                     post = request("DELETE", response)
+            
+            case "test":
+
+                return {
+
+                    "code": 1,
+                    "status": "done",
+                    "message": "say hello!",
+                    "dataModels": [
+                        {
+                            "fd_id": 1,
+                            "fd_name": "jagung bakar",
+                            "fd_stock": 12,
+                            "fd_price": 12000,
+                            "fd_chef": "ahmad asy syafiq",
+                            "fd_sale": 12
+                        }
+                    ]
+                }
                 
         if post:
 
@@ -132,7 +160,20 @@ def serverApiMp(data: Any, queue: Queue, lock: Lock):
 
 
     route(wrapper)
-    api.run(host="192.168.1.9")
+    api.run(host = host.value, port = port.value)
+    # with subprocess.Popen("ifconfig | grep -i inet  | grep -i 192 | head -n 1 | awk '{print $2}'", stderr = subprocess.PIPE, stdout = subprocess.PIPE, stdin = subprocess.PIPE, shell = True) as process:
+# 
+        # host: str = process.stdout.read().decode("utf-8")
+# 
+        # if (len(host)):
+# 
+            # print(host)
+            # api.run(host = host)
+# 
+        # else:
+# 
+            # print("cannot read ip route!")
+            # exit()
 
 """
 ?MYSQL CONNECTOR CONNECT TO LOCAL SERVER AND COMMUNICATE TO THE SERVER API
@@ -225,13 +266,18 @@ if str(__name__).upper() in ("__MAIN__",):
 
                         return {
 
-                            "status": "done"
+                            "code": 1,
+                            "status": "done",
+                            "message": "maybe was inserting",
+                            "dataModels": [ data ]
                         }
-
 
                     return {
 
-                        "status": "dump"
+                        "code": 0,
+                        "status": "dump",
+                        "message": "failed",
+                        "dataModels": []
                     }
                 
                 def demand_where_custom(where: dict):
@@ -259,6 +305,33 @@ if str(__name__).upper() in ("__MAIN__",):
                         if whatisit(x.__getitem__(1)) \
                     ])
 
+                def _zip(*args):
+
+                    size: int = len(args[0])
+
+                    return [ \
+                        tuple(x[i] for x in args) \
+                        for i in range(size) \
+                    ]
+
+                def raws_to_json(raws: list):
+
+                    def make_json(data: list):
+
+                        default_keys: list = [
+
+                            "fd_id",
+                            "fd_name",
+                            "fd_stock",
+                            "fd_price",
+                            "fd_chef",
+                            "fd_sale"
+                        ]
+
+                        return dict(_zip(default_keys, data))
+
+                    return [ make_json(data) for data in raws ]
+
                 def select_from_table(body: Any):
 
                     if type(body) is dict:
@@ -273,15 +346,27 @@ if str(__name__).upper() in ("__MAIN__",):
 
                                 wheres: str = "WHERE {}".format(wheres)
 
-                                context = "SELECT * FROM `fd_table` {}".format(wheres)
+                                context = "SELECT * FROM `fd_table` {};".format(wheres)
 
                                 print(context)
 
                                 cursor.execute(context)
 
-                                return rawQuery(cursor)
+                                return {
 
-                    return select_all_from_table()
+                                    "code": 2,
+                                    "status": "successfull",
+                                    "message": "select in condition",
+                                    "dataModels": raws_to_json(rawQuery(cursor))
+                                }
+
+                    return {
+
+                        "code": 1,
+                        "status": "done",
+                        "message": "warning, load alls make buffer flow!",
+                        "dataModels": raws_to_json(select_all_from_table())
+                    }
 
                 def update_in_table(body: Any):
 
@@ -292,6 +377,8 @@ if str(__name__).upper() in ("__MAIN__",):
                             where: Any = body.__getitem__("where")
 
                             if type(where) is dict:
+
+                                where = demand_body_custom(where)
 
                                 wheres: str = demand_where_custom(where)
 
@@ -304,7 +391,7 @@ if str(__name__).upper() in ("__MAIN__",):
                                     "'{}'".format(x.__getitem__(1)) \
                                 ]), data.items()))
 
-                                context = "UPDATE `fd_table` SET {} {}".format(items, wheres)
+                                context = "UPDATE `fd_table` SET {} {};".format(items, wheres)
 
                                 print(context)
 
@@ -312,17 +399,28 @@ if str(__name__).upper() in ("__MAIN__",):
 
                                 return {
 
-                                    "status": "success"
+                                    "code": 2,
+                                    "status": "success",
+                                    "message": "has been update",
+                                    "dataModels": [
+                                        dict(data).update(where)
+                                    ]
                                 }
 
                         return {
 
-                            "status": "done"
+                            "code": 1,
+                            "status": "done",
+                            "message": "nothing todo",
+                            "dataModels": []
                         }
 
                     return {
 
-                        "status": "dump"
+                        "code": 0,
+                        "status": "dump",
+                        "message": "failed",
+                        "dataModels": []
                     }
 
                 def delete_in_table(body: Any):
@@ -339,7 +437,7 @@ if str(__name__).upper() in ("__MAIN__",):
 
                                 wheres: str = "WHERE {}".format(wheres)
 
-                                context = "DELETE FROM `fd_table` {}".format(wheres)
+                                context = "DELETE FROM `fd_table` {};".format(wheres)
 
                                 print(context)
 
@@ -347,22 +445,36 @@ if str(__name__).upper() in ("__MAIN__",):
 
                                 return {
 
-                                    "status": "success"
+                                    "code": 2,
+                                    "status": "success",
+                                    "message": "has been remove",
+                                    "dataModels": []
                                 }
 
                         return {
 
-                            "status": "done"
+                            "code": 1,
+                            "status": "done",
+                            "message": "nothing todo",
+                            "dataModels": []
                         }
 
                     return {
 
-                        "status": "dump"
+                        "code": 0,
+                        "status": "dump",
+                        "message": "failed",
+                        "dataModels": []
                     }
 
                 with Manager() as manager:
 
                     d: Any = manager.dict()
+
+                    print(str.join(":", serverApiConfig.values()))
+
+                    serverApiHost: Value = Value(ctypes.c_wchar_p, serverApiConfig.__getitem__("host"))
+                    serverApiPort: Value = Value(ctypes.c_wchar_p, serverApiConfig.__getitem__("port"))
 
                     queue: Queue = Queue()
                     lock: Lock = Lock()
@@ -371,7 +483,7 @@ if str(__name__).upper() in ("__MAIN__",):
                     d["response"] = False
                     d["body"] = {}
 
-                    t: Process = Process(target=serverApiMp, args=(d, queue, lock))
+                    t: Process = Process(target=serverApiMp, args=(serverApiHost, serverApiPort, d, queue, lock))
 
                     t.start()
 

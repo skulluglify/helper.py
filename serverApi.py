@@ -61,7 +61,7 @@ dictConfig({
 #         "message": "say hello!"
 #     })
 
-default_header_keys: list = ["User-Agent", "Accept", "Postman-Token", "Host", "Accept-Encoding", "Connection", "Content-Length"]
+default_header_keys: list = ["User-Agent", "Accept", "Postman-Token", "Host", "Accept-Encoding", "Connection", "Content-Length", "Content-Type"]
 default_header_keys: list = [*map(lambda x: x.lower(), default_header_keys)]
 
 def parse_url_auto(o: Any):
@@ -175,7 +175,17 @@ class ServerApi:
 
     def run(self, **kwargs):
 
-        self.app.run(threaded = True, port = "5000", debug = False, **kwargs)
+        config: dict = {
+
+            "threaded": True, 
+            "port": "5000", 
+            "debug": False
+        
+        }
+
+        config.update(kwargs)
+
+        self.app.run(**config)
 
     def routeJSON(self, **kwargs):
 
